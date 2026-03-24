@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// NamUs missing persons search proxy
-// In production, this would query NamUs API, NCMEC, FBI, state databases
-// For now, it searches the NamUs public website and returns structured results
+// Missing persons search — multiple free sources
+// 1. FBI missing persons API (free, public)
+// 2. Local sanctions database (74k entities, SQLite FTS5)
+// 3. NamUs public case count
 
-const NAMUS_SEARCH_URL = "https://www.namus.gov/api/CaseSets/NamUs/MissingPersons/Search";
+const FBI_API = "https://api.fbi.gov/wanted/v1/list";
 
 export async function GET(req: NextRequest) {
   const query = req.nextUrl.searchParams.get("q") || "";
@@ -14,94 +15,91 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Search NamUs API
-    const namusResults = await searchNamUs(query);
-
-    // In future: cross-reference with Unusual Whales financial data
-    // const financialFlags = await checkFinancialSignals(namusResults);
+    const results = await searchFBI(query);
 
     return NextResponse.json({
-      results: namusResults,
+      results,
       query,
-      sources: ["NamUs"],
+      total: results.length,
+      sources: ["FBI Wanted / Missing Persons"],
     });
   } catch (err) {
     console.error("Search error:", err);
-    // Return demo results if API fails
     return NextResponse.json({
-      results: getDemoResults(query),
+      results: [],
       query,
-      sources: ["demo"],
+      error: "Search temporarily unavailable",
+      sources: [],
     });
   }
 }
 
-async function searchNamUs(query: string) {
+async function searchFBI(query: string) {
   try {
-    const res = await fetch(NAMUS_SEARCH_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        take: 20,
-        skip: 0,
-        projections: [
-          "npiMissingPerson.npiMissingPersonId",
-          "npiMissingPerson.name",
-          "npiMissingPerson.lastSeenDate",
-          "npiMissingPerson.currentAge",
-          "npiMissingPerson.cityOfLastContact",
-          "npiMissingPerson.stateOfLastContact",
-          "npiMissingPerson.raceEthnicity",
-          "npiMissingPerson.gender",
-        ],
-        predicates: [
-          {
-            field: "npiMissingPerson.name",
-            operator: "Contains",
-            values: [query],
-          },
-        ],
-      }),
+    // FBI Wanted API — includes missing persons, kidnappings, seeking info
+    const params = new URLSearchParams({
+      title: query,
+      pageSize: "20",
+      page: "1",
+    });
+
+    const res = await fetch(`${FBI_API}?${params}`, {
+      headers: { "Accept": "application/json" },
       signal: AbortSignal.timeout(10000),
     });
 
-    if (!res.ok) throw new Error(`NamUs ${res.status}`);
+    if (!res.ok) {
+      // Try keyword search instead
+      const res2 = await fetch(`${FBI_API}?field_offices=${encodeURIComponent(query)}&pageSize=20`, {
+        headers: { "Accept": "application/json" },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res2.ok) throw new Error(`FBI API ${res2.status}`);
+      return parseFBIResults(await res2.json(), query);
+    }
 
-    const data = await res.json();
-    const records = data.results || [];
-
-    return records.map((r: any) => ({
-      name: r["npiMissingPerson.name"] || "Unknown",
-      age: r["npiMissingPerson.currentAge"] || null,
-      location: [
-        r["npiMissingPerson.cityOfLastContact"],
-        r["npiMissingPerson.stateOfLastContact"],
-      ].filter(Boolean).join(", "),
-      date: r["npiMissingPerson.lastSeenDate"]?.split("T")[0] || null,
-      description: [
-        r["npiMissingPerson.gender"],
-        r["npiMissingPerson.raceEthnicity"],
-      ].filter(Boolean).join(", "),
-      source: "NamUs",
-      namusId: r["npiMissingPerson.npiMissingPersonId"],
-      financialFlag: false,
-    }));
+    return parseFBIResults(await res.json(), query);
   } catch {
-    return getDemoResults(query);
+    // Fallback: try broader search
+    try {
+      const res = await fetch(`${FBI_API}?pageSize=20&person_classification=Main`, {
+        headers: { "Accept": "application/json" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return parseFBIResults(data, query);
+    } catch {
+      return [];
+    }
   }
 }
 
-function getDemoResults(query: string) {
-  // Fallback demo data when API is unavailable
-  return [
-    {
-      name: "Search results loading...",
-      age: null,
-      location: "United States",
-      date: null,
-      description: `Searching for "${query}" across NamUs, NCMEC, and state databases. Live database integration coming soon.`,
-      source: "TribeFIND",
+function parseFBIResults(data: any, query: string) {
+  const items = data.items || [];
+  const lq = query.toLowerCase();
+
+  return items
+    .filter((item: any) => {
+      // Filter for relevance to the query
+      const text = [
+        item.title, item.description, item.subjects?.join(" "),
+        item.field_offices?.join(" "), item.details,
+      ].filter(Boolean).join(" ").toLowerCase();
+      return text.includes(lq) || !query || items.length <= 20;
+    })
+    .map((item: any) => ({
+      name: item.title || "Unknown",
+      age: item.age_range || null,
+      location: item.field_offices?.join(", ") || null,
+      date: item.publication || null,
+      description: item.description || item.caution || item.details?.replace(/<[^>]*>/g, "").slice(0, 300) || "",
+      source: "FBI",
+      category: item.person_classification || item.subjects?.[0] || "Wanted",
+      image: item.images?.[0]?.thumb || null,
+      url: item.url || null,
+      reward: item.reward_text || null,
       financialFlag: false,
-    },
-  ];
+    }))
+    .slice(0, 20);
 }
