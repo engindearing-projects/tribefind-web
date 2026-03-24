@@ -15,7 +15,19 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const results = await searchFBI(query);
+    // Search FBI in parallel with different strategies
+    const [titleResults, broadResults] = await Promise.all([
+      searchFBI(query, "title"),
+      searchFBI(query, "broad"),
+    ]);
+
+    // Dedupe by name
+    const seen = new Set();
+    const results = [...titleResults, ...broadResults].filter(r => {
+      if (seen.has(r.name)) return false;
+      seen.add(r.name);
+      return true;
+    });
 
     return NextResponse.json({
       results,
@@ -34,44 +46,37 @@ export async function GET(req: NextRequest) {
   }
 }
 
-async function searchFBI(query: string) {
+async function searchFBI(query: string, strategy: string = "title") {
   try {
-    // FBI Wanted API — includes missing persons, kidnappings, seeking info
-    const params = new URLSearchParams({
-      title: query,
-      pageSize: "20",
-      page: "1",
-    });
+    let url: string;
 
-    const res = await fetch(`${FBI_API}?${params}`, {
+    if (strategy === "title") {
+      // Search by title keyword
+      url = `${FBI_API}?title=${encodeURIComponent(query)}&pageSize=20&page=1`;
+    } else {
+      // Broad search — pull cases and filter locally
+      // Try subjects filter for missing persons categories
+      const subjects = query.toLowerCase().includes("child") ? "Kidnappings and Missing Persons"
+        : query.toLowerCase().includes("trafficking") ? "Human Trafficking"
+        : "";
+
+      if (subjects) {
+        url = `${FBI_API}?subject=${encodeURIComponent(subjects)}&pageSize=50&page=1`;
+      } else {
+        // Pull latest and filter by query
+        url = `${FBI_API}?pageSize=50&page=1`;
+      }
+    }
+
+    const res = await fetch(url, {
       headers: { "Accept": "application/json" },
       signal: AbortSignal.timeout(10000),
     });
 
-    if (!res.ok) {
-      // Try keyword search instead
-      const res2 = await fetch(`${FBI_API}?field_offices=${encodeURIComponent(query)}&pageSize=20`, {
-        headers: { "Accept": "application/json" },
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!res2.ok) throw new Error(`FBI API ${res2.status}`);
-      return parseFBIResults(await res2.json(), query);
-    }
-
+    if (!res.ok) return [];
     return parseFBIResults(await res.json(), query);
   } catch {
-    // Fallback: try broader search
-    try {
-      const res = await fetch(`${FBI_API}?pageSize=20&person_classification=Main`, {
-        headers: { "Accept": "application/json" },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) return [];
-      const data = await res.json();
-      return parseFBIResults(data, query);
-    } catch {
-      return [];
-    }
+    return [];
   }
 }
 
