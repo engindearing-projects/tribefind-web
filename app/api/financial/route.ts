@@ -8,8 +8,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 const EDGAR_FULL_TEXT = "https://efts.sec.gov/LATEST/search-index?q=";
 const EDGAR_COMPANY = "https://data.sec.gov/submissions/CIK";
-// Self-hosted yente instance, falls back to public API
-const OPENSANCTIONS_API = process.env.YENTE_URL || "https://api.opensanctions.org/search/default";
+// Local sanctions API via Cloudflare tunnel
+const TRIBEFIND_API = process.env.TRIBEFIND_API_URL || "https://sound-victory-doom-membership.trycloudflare.com";
 const OFAC_SDN_URL = "https://www.treasury.gov/ofac/downloads/sdn.csv";
 
 export async function GET(req: NextRequest) {
@@ -40,10 +40,10 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Search OpenSanctions for sanctioned entities
+  // Search sanctions via local API
   if (type === "all" || type === "sanctions") {
     try {
-      const sanctionsResults = await searchSanctions(query);
+      const sanctionsResults = await searchSanctionsLocal(query);
       results.sanctions = sanctionsResults;
       if (sanctionsResults.length > 0) {
         results.signals.push({
@@ -164,5 +164,23 @@ async function searchDarkPool(query: string) {
     if (!res.ok) return [];
     const data = await res.json();
     return data || [];
+  } catch { return []; }
+}
+
+// Local sanctions search via Cloudflare tunnel
+async function searchSanctionsLocal(query: string) {
+  try {
+    const res = await fetch(`${TRIBEFIND_API}/api/sanctions?q=${encodeURIComponent(query)}`, {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.results || []).map((r: any) => ({
+      name: r.name,
+      type: r.type,
+      countries: r.country || "",
+      datasets: r.datasets || "",
+      topics: r.topics || "",
+    }));
   } catch { return []; }
 }
