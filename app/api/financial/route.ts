@@ -128,7 +128,7 @@ async function searchEdgar(query: string) {
 async function searchSanctions(query: string) {
   try {
     const res = await fetch(
-      `${OPENSANCTIONS_API}?q=${encodeURIComponent(query)}&limit=10`,
+      `${TRIBEFIND_API}?q=${encodeURIComponent(query)}&limit=10`,
       {
         headers: { "Accept": "application/json" },
         signal: AbortSignal.timeout(10000),
