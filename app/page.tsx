@@ -8,6 +8,7 @@ export default function Home() {
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [selected, setSelected] = useState<any>(null);
 
   const search = async () => {
     if (!query.trim()) return;
@@ -86,24 +87,87 @@ export default function Home() {
               <>
                 <p className="text-sm text-gray-500 mb-4">{results.length} results found</p>
                 {results.map((r, i) => (
-                  <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition">
+                  <div
+                    key={i}
+                    onClick={() => setSelected(r)}
+                    className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-amber-500/50 transition cursor-pointer"
+                  >
                     <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-semibold text-lg">{r.name}</h3>
-                        <p className="text-gray-400 text-sm mt-1">
-                          {r.age ? `Age: ${r.age}` : ""} {r.location ? `| ${r.location}` : ""} {r.date ? `| Missing since: ${r.date}` : ""}
-                        </p>
-                        <p className="text-gray-300 text-sm mt-2">{r.description}</p>
+                      <div className="flex gap-4">
+                        {r.image && (
+                          <img src={r.image} alt={r.name} className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
+                        )}
+                        <div>
+                          <h3 className="font-semibold text-lg">{r.name}</h3>
+                          <p className="text-gray-400 text-sm mt-1">
+                            {r.category && <span className="text-amber-400">{r.category}</span>}
+                            {r.age ? ` | Age: ${r.age}` : ""} {r.location ? ` | ${r.location}` : ""} {r.date ? ` | ${r.date}` : ""}
+                          </p>
+                          <p className="text-gray-300 text-sm mt-2 line-clamp-2">{r.description}</p>
+                        </div>
                       </div>
-                      {r.financialFlag && (
-                        <span className="px-2 py-1 bg-red-900/50 border border-red-700 rounded text-xs text-red-400 whitespace-nowrap">
-                          Financial Signal
+                      {r.reward && (
+                        <span className="px-2 py-1 bg-amber-900/50 border border-amber-700 rounded text-xs text-amber-400 whitespace-nowrap">
+                          Reward
                         </span>
                       )}
                     </div>
-                    {r.source && <p className="text-xs text-gray-600 mt-3">Source: {r.source}</p>}
                   </div>
                 ))}
+
+                {/* Detail Panel */}
+                {selected && (
+                  <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-6" onClick={() => setSelected(null)}>
+                    <div className="bg-gray-900 border border-gray-700 rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-8" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex justify-between items-start mb-6">
+                        <div className="flex gap-5">
+                          {selected.image && (
+                            <img src={selected.image} alt={selected.name} className="w-24 h-24 rounded-xl object-cover" />
+                          )}
+                          <div>
+                            <h2 className="text-2xl font-bold">{selected.name}</h2>
+                            {selected.category && <p className="text-amber-400 text-sm mt-1">{selected.category}</p>}
+                          </div>
+                        </div>
+                        <button onClick={() => setSelected(null)} className="text-gray-500 hover:text-white text-2xl">&times;</button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 mb-6">
+                        {selected.age && <Detail label="Age Range" value={selected.age} />}
+                        {selected.location && <Detail label="Location" value={selected.location} />}
+                        {selected.date && <Detail label="Date" value={selected.date} />}
+                        {selected.source && <Detail label="Source" value={selected.source} />}
+                        {selected.reward && <Detail label="Reward" value={selected.reward} />}
+                      </div>
+
+                      {selected.description && (
+                        <div className="mb-6">
+                          <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">Description</p>
+                          <p className="text-gray-300 text-sm leading-relaxed">{selected.description}</p>
+                        </div>
+                      )}
+
+                      <div className="flex gap-3">
+                        {selected.url && (
+                          <a
+                            href={selected.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-black font-bold rounded-lg transition text-sm"
+                          >
+                            View on FBI.gov
+                          </a>
+                        )}
+                        <Link
+                          href={`/tip?name=${encodeURIComponent(selected.name)}`}
+                          className="px-5 py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition text-sm border border-gray-600"
+                        >
+                          Submit a Tip
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </>
             ) : (
               <div className="text-center py-20">
@@ -132,6 +196,15 @@ export default function Home() {
           </p>
         </div>
       </footer>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">{label}</p>
+      <p className="text-sm text-white">{value}</p>
     </div>
   );
 }
