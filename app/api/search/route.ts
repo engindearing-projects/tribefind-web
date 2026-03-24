@@ -84,14 +84,18 @@ function parseFBIResults(data: any, query: string) {
   const items = data.items || [];
   const lq = query.toLowerCase();
 
+  // Split query into words for flexible matching
+  const words = lq.split(/\s+/).filter(w => w.length > 2);
+
   return items
     .filter((item: any) => {
-      // Filter for relevance to the query
+      if (!query || words.length === 0) return true;
       const text = [
         item.title, item.description, item.subjects?.join(" "),
         item.field_offices?.join(" "), item.details,
       ].filter(Boolean).join(" ").toLowerCase();
-      return text.includes(lq) || !query || items.length <= 20;
+      // Match if ANY query word appears
+      return words.some(w => text.includes(w));
     })
     .map((item: any) => ({
       name: item.title || "Unknown",
