@@ -8,7 +8,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 const EDGAR_FULL_TEXT = "https://efts.sec.gov/LATEST/search-index?q=";
 const EDGAR_COMPANY = "https://data.sec.gov/submissions/CIK";
-const OPENSANCTIONS_API = "https://api.opensanctions.org/search/default";
+// Self-hosted yente instance, falls back to public API
+const OPENSANCTIONS_API = process.env.YENTE_URL || "https://api.opensanctions.org/search/default";
 const OFAC_SDN_URL = "https://www.treasury.gov/ofac/downloads/sdn.csv";
 
 export async function GET(req: NextRequest) {
